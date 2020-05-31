@@ -38,14 +38,12 @@ class CNNGRUNet(torch.nn.Module):
         for num in range(6):
             if self.h[num] is None:
                 self.h[num] = Variable(states_S.data.new().resize_((batch, self.out_rnn)).zero_())
-            elif True in require_init:
-                h = self.h[num].data
-                for idx, init in enumerate(require_init):
-                    if init:
-                        h[idx].zero_()
-                self.h[num] = Variable(h)
-            else:
-                pass
+        if True in require_init:
+            for idx, init in enumerate(require_init):
+                if init:
+                    for num in range(6):
+                        self.h[num][idx, :].zero_()
+
 
         values = []
         for idx, (state_S, state_G) in enumerate(zip(states_S, states_G)):

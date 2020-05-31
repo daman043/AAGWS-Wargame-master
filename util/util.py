@@ -1,7 +1,8 @@
 import numpy as np
 from PIL import Image, ImageDraw
 import os
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def cvtInt6loc2HexOffset(int6loc):
     '''转换6位整形坐标int6loc转换为偏移坐标（y,x）2元组'''
@@ -51,6 +52,18 @@ def cvtFlatten2Offset(flatten_num, ROW, COL):
         return (row,col)
     except Exception as e:
         echosentence_color('common > cvtHexOffset2Int6():{}'.format(str(e)))
+        raise
+
+def cvtOffset2Flatten(Offset, ROW, COL):
+    '''转换（row,col）到6位整型坐标'''
+    try:
+        assert len(Offset) == 2
+        flatten_num = Offset[0] * COL + Offset[1]
+
+        assert (flatten_num >= 0 and ROW >= Offset[0] >= 0 and COL >= Offset[1] >= 0)
+        return flatten_num
+    except Exception as e:
+        echosentence_color('common > cvtOffset2Flatten6():{}'.format(str(e)))
         raise
 
 
@@ -109,31 +122,50 @@ def xiangsu(q):
 
 
 # 画图函数
-def plot_position(true_postion, predict_position, result_dir, name):
-    map_pic = os.path.join('../../data/map/城镇居民地.jpg')  # 地图背景图片目录
-    im = Image.open(map_pic)  # 作为背景
+def plot_position(true_postion, predict_position, map_dir, map_size, result_dir, name, blend_level=0.9, text=None):
+    # map_pic = os.path.join('../../data/map/城镇居民地.jpg')  # 地图背景图片目录
+    im = Image.open(map_dir)  # 作为背景
     img = im.convert('RGBA')  # 转换为RGBA模式,添加透明度通道,便于透明图像融合
-    im2 = Image.new("RGB", img.size, )  # 建立前景图像
-    img2 = im2.convert('RGBA')  # 添加透明度通道
-    im3 = Image.new("RGB", img.size, )  # 建立前景图像
-    img3 = im3.convert('RGBA')  # 添加透明度通道
-    draw2 = ImageDraw.Draw(img2)  # 引入画笔
-    draw3 = ImageDraw.Draw(img3)  # 引入画笔
+    hex_draw = Image.new('RGBA', img.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(hex_draw)  # 引入画笔
+    if len(true_postion) != len(predict_position):
+        raise Exception('预测位置与真实位置不对应')
+    for i, pos in enumerate(true_postion):
+        if pos == predict_position[i]:
+            (row, col) = cvtFlatten2Offset(pos, map_size[0], map_size[1])
+            Int6loc = cvtHexOffset2Int6loc(row, col)
+            center, x = xiangsu(Int6loc)
+            draw.polygon(x, fill=(0, 255, 0, int(blend_level * 100)))
+        else:
+            (row, col) = cvtFlatten2Offset(pos, map_size[0], map_size[1])
+            Int6loc = cvtHexOffset2Int6loc(row, col)
+            center, x = xiangsu(Int6loc)
+            draw.polygon(x, fill=(255, 0, 0, int(blend_level * 100)))
 
-    for (row, col) in true_postion:
+            (row, col) = cvtFlatten2Offset(predict_position[i], map_size[0], map_size[1])
+            Int6loc = cvtHexOffset2Int6loc(row, col)
+            center, x = xiangsu(Int6loc)
+            draw.polygon(x, fill=(0, 0, 255, int(blend_level * 100)))
+    img = Image.alpha_composite(img, hex_draw)
+    del draw
+    img.save(os.path.join(result_dir, name + ".png"))  # 保存图像
+
+def plot_position_Flatten(postion_list, map_dir, map_size, result_dir, name, blend_level=0.9, text=None):
+    # map_pic = os.path.join('../../data/map/城镇居民地.jpg')  # 地图背景图片目录
+    im = Image.open(map_dir)  # 作为背景
+    img = im.convert('RGBA')  # 转换为RGBA模式,添加透明度通道,便于透明图像融合
+    hex_draw = Image.new('RGBA', img.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(hex_draw)  # 引入画笔
+
+    for i, pos in enumerate(postion_list):
+        (row, col) = cvtFlatten2Offset(pos, map_size[0], map_size[1])
         Int6loc = cvtHexOffset2Int6loc(row, col)
         center, x = xiangsu(Int6loc)
-        draw2.polygon(x, fill=(255, 0, 0))
+        draw.polygon(x, fill=(255, 0, 0, int(blend_level * 100)))
 
-    for (row, col) in predict_position:
-        Int6loc = cvtHexOffset2Int6loc(row, col)
-        center, x = xiangsu(Int6loc)
-        draw3.polygon(x, fill=(0, 0, 255))
-
-    blend2 = Image.blend(img, img2, 0.5)  # 背景与所画图像进行融合
-    blend3 = Image.blend(blend2, img3, 0.5)  # 背景与所画图像进行融合
-    blend3.save(os.path.join(result_dir, name + ".png"))  # 保存图像
-
+    img = Image.alpha_composite(img, hex_draw)
+    del draw
+    img.save(os.path.join(result_dir, name + ".png"))  # 保存图像
 
 def get_name_from_labels(labels):
     text_labels = ['tank_1', 'tank_2', 'armored_vehicles_1', 'armored_vehicles_2', 'soldier_1', 'soldier_2']
@@ -163,3 +195,88 @@ def to_categorical(y, num_classes=None):
     output_shape = input_shape + (num_classes,)
     categorical = np.reshape(categorical, output_shape)
     return categorical
+
+def from_categorical(c):
+    label = (np.argmax(c, axis=0)).tolist()
+    if isinstance(label, int):
+        return label
+    else:
+        raise Exception
+
+def all_true(logic_list):
+    if not isinstance(logic_list, list):
+        raise Exception
+    if not logic_list:
+        return False
+    for i in logic_list:
+        if (i is False) or i == 0 or i == [] or (i is None):
+            return False
+    return True
+
+
+def plot_hot_map(data, name:str):
+    # fig = plt.figure()
+    ax = sns.heatmap(data, annot=False)
+    ax.set_title(name)
+    plt.show()
+
+
+
+def plot_predict_heatmap(predict_data, true_pos, map_size, result_dir, name, blend_level=0):
+    tank_dir = '../../plot/Tank2.png'
+
+    map_dir = os.path.join('../../data/map/城镇居民地.jpg')  # 地图背景图片目录
+    im = Image.open(map_dir)  # 作为背景
+    img = im.convert('RGBA')  # 转换为RGBA模式,添加透明度通道,便于透明图像融合
+    hex_draw = Image.new('RGBA', img.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(hex_draw)  # 引入画笔
+
+
+    data = normalization(predict_data)
+    for index in range(len(data)):
+        (row, col) = cvtFlatten2Offset(index, map_size[0], map_size[1])
+        Int6loc = cvtHexOffset2Int6loc(row, col)
+        center, x = xiangsu(Int6loc)
+        color = get_heat_color(data[index], blend_level)
+        # print(color)
+        draw.polygon(x, fill=color)
+
+    img = Image.alpha_composite(img, hex_draw)
+
+    im = Image.open(tank_dir)
+    ## rawimg的size和im的size要相同，不然不能匹配
+    # paste(用来粘贴的图片，(位置坐标))，可以通过设置位置坐标来确定粘贴图片的位置
+    # 该方法没有返回值，直接作用于原图片
+    (row, col) = cvtFlatten2Offset(true_pos, map_size[0], map_size[1])
+    Int6loc = cvtHexOffset2Int6loc(row, col)
+    center, x = xiangsu(Int6loc)
+    img.paste(im, (center[0]-23, center[1]-25, center[0] + 48-23, center[1] + 48-25), mask=im)
+    # img.show()
+    del draw
+    img.save(os.path.join(result_dir, name + ".png"))  # 保存图像
+
+
+def get_heat_color(data, blend_level):
+    bg_1 = (255, 165, 0)
+    bg_2 = (0, 0, 128)
+
+    # 设置步长
+    step_r = (bg_1[0] - bg_2[0])
+    step_g = (bg_1[1] - bg_2[1])
+    step_b = (bg_1[2] - bg_2[2])
+
+    bg_r = int(round(bg_2[0] + step_r * data))
+    bg_g = int(round(bg_2[1] + step_g * data))
+    bg_b = int(round(bg_2[2] + step_b * data))
+    blend_level = int(blend_level * 255)
+    return (bg_r, bg_g, bg_b, blend_level)
+
+
+def normalization(data):
+    _range = np.max(data) - np.min(data)
+    return (data - np.min(data)) / _range
+
+
+
+if __name__ == '__main__':
+    plot_hot_map(np.ones((5,5)), str(1))
