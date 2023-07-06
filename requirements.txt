@@ -2,7 +2,7 @@ pandas==0.23.0
 visdom==0.1.8.8
 torch==1.1.0
 numpy==1.11.3
-scipy==1.1.0
+scipy==1.10.0
 tqdm==4.25.0
 matplotlib==2.2.2
 Pillow==8.3.2
